@@ -20,7 +20,10 @@
       in
       {
         devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [ uv ];
+          buildInputs = with pkgs; [
+            uv
+            just
+          ];
         };
       }
     );
