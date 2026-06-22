@@ -61,3 +61,11 @@ class TokenResponse(BaseModel):
     token: str
     created_at: datetime
     expires_at: datetime | None = None
+
+
+class TokenVerifyResponse(BaseModel):
+    """Returned when a token is successfully verified."""
+
+    user: UserResponse
+    token_created_at: datetime
+    token_expires_at: datetime | None = None

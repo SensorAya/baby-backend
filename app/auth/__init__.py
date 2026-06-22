@@ -5,10 +5,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.dependencies import get_current_user
 from app.auth.schemas import (
     LoginRequest,
     TokenCreateRequest,
     TokenResponse,
+    TokenVerifyResponse,
     UserCreateRequest,
     UserResponse,
 )
@@ -153,3 +155,25 @@ async def login(
         )
 
     return await _create_token_for_user(user, db)
+
+
+@router.get("/verify-token", response_model=TokenVerifyResponse)
+async def verify_token(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify that the Bearer API token is valid and return the associated user.
+
+    Uses the ``Authorization: Bearer <token>`` header.  Returns 401 if the
+    token is missing, malformed, unknown, or expired.
+    """
+    result = await db.execute(
+        select(ApiToken).where(ApiToken.user_id == current_user.id)
+    )
+    api_token = result.scalar_one_or_none()
+
+    return TokenVerifyResponse(
+        user=UserResponse.model_validate(current_user),
+        token_created_at=api_token.created_at if api_token else current_user.created_at,
+        token_expires_at=api_token.expires_at if api_token else None,
+    )
