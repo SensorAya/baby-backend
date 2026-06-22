@@ -25,6 +25,20 @@ class UserCreateRequest(BaseModel):
         return v.lower()  # normalize to lowercase
 
 
+class LoginRequest(BaseModel):
+    """Payload for logging in with email + password to obtain a token."""
+
+    email: str = Field(..., max_length=255, examples=["admin@example.com"])
+    password: str = Field(..., min_length=1)
+
+    @field_validator("email")
+    @classmethod
+    def _validate_email(cls, v: str) -> str:
+        if not _EMAIL_RE.match(v):
+            raise ValueError("Invalid email format")
+        return v.lower()
+
+
 class TokenCreateRequest(BaseModel):
     """Payload for creating / rotating a user's permanent API token."""
 
