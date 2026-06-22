@@ -5,7 +5,10 @@ description = "A minimal FastAPI backend service"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "alembic>=1.18.4",
+    "asyncpg>=0.31.0",
     "fastapi[standard]>=0.137.2",
+    "sqlalchemy[asyncio]>=2.0.51",
 ]
 
 [dependency-groups]

@@ -52,3 +52,25 @@ db-logs:
 # open a psql shell to postgresql
 db-shell:
     {{dc}} exec -e PGPASSWORD="$POSTGRES_PASSWORD" postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+
+_alembic := uv + " run alembic"
+
+# create a new migration (write raw SQL in the generated file)
+migrate-create name:
+    {{_alembic}} revision -m "{{name}}"
+
+# apply all pending migrations
+migrate:
+    {{_alembic}} upgrade head
+
+# rollback the last migration
+rollback:
+    {{_alembic}} downgrade -1
+
+# show current migration revision
+migrate-status:
+    {{_alembic}} current
+
+# show migration history
+migrate-history:
+    {{_alembic}} history
