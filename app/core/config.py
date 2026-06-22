@@ -19,3 +19,6 @@ class Settings(BaseSettings):
             f":{quote_plus(self.POSTGRES_PASSWORD)}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
+
+
+settings = Settings()

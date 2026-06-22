@@ -55,9 +55,13 @@ db-shell:
 
 _alembic := uv + " run alembic"
 
-# create a new migration (write raw SQL in the generated file)
+# create a new empty migration (write raw SQL in the generated file)
 migrate-create name:
     {{_alembic}} revision -m "{{name}}"
+
+# create a new migration with autogenerate (detects model changes)
+migrate-autogen name:
+    {{_alembic}} revision --autogenerate -m "{{name}}"
 
 # apply all pending migrations
 migrate:
