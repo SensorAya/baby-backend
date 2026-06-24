@@ -1,7 +1,7 @@
 set dotenv-load := true
 
 uv := "uv"
-fastapi := uv + " run fastapi"
+uvicorn := uv + " run uvicorn"
 ruff := uv + " run ruff"
 dc := "docker compose"
 
@@ -15,11 +15,11 @@ install:
 
 # run the dev server (with auto-reload)
 dev:
-    {{fastapi}} dev
+    {{uvicorn}} app.main:app --host 127.0.0.1 --port 8000 --reload
 
 # run the production server
 run:
-    {{fastapi}} run
+    {{uvicorn}} app.main:app --host 127.0.0.1 --port 8000
 
 # lint the codebase
 lint:
