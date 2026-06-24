@@ -19,7 +19,7 @@ dev:
 
 # run the production server
 run:
-    {{uvicorn}} app.main:app --host 127.0.0.1 --port 8000
+    DISABLE_DOCS=1 {{uvicorn}} app.main:app --host 127.0.0.1 --port 8000
 
 # lint the codebase
 lint:
