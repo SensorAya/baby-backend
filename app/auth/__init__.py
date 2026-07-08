@@ -99,6 +99,15 @@ async def register_user(
     return user
 
 
+@router.get("/users", response_model=list[UserResponse])
+async def list_users(
+    db: AsyncSession = Depends(get_db),
+):
+    """List registered users."""
+    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    return result.scalars().all()
+
+
 @router.post(
     "/tokens",
     response_model=TokenResponse,

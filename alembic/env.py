@@ -1,13 +1,12 @@
 import asyncio
-import os
 from logging.config import fileConfig
-from urllib.parse import quote_plus
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+from app.core.config import settings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -18,30 +17,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Build DATABASE_URL from environment variables (.env)
-DB_USER = os.getenv("POSTGRES_USER")
-DB_PASS = os.getenv("POSTGRES_PASSWORD")
-DB_NAME = os.getenv("POSTGRES_DB")
-DB_HOST = os.getenv("POSTGRES_HOST", "localhost")
-DB_PORT = os.getenv("POSTGRES_PORT", "5432")
-
-if not all([DB_USER, DB_PASS, DB_NAME]):
-    raise RuntimeError(
-        "Missing required database environment variables. "
-        "Ensure POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB are set "
-        "(e.g., in .env or the process environment)."
-    )
-# Narrow types for the type checker (the runtime guard above ensures these are str)
-assert DB_USER is not None
-assert DB_PASS is not None
-assert DB_NAME is not None
-
-DATABASE_URL = (
-    f"postgresql+asyncpg://{quote_plus(DB_USER)}:{quote_plus(DB_PASS)}"
-    f"@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
 # Escape % for ConfigParser interpolation (%% → literal %)
-config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
+config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
 # add your model's MetaData object here
 # for 'autogenerate' support
