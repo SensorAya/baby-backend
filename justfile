@@ -14,7 +14,7 @@ install:
     {{uv}} sync
 
 # run the dev server (with auto-reload)
-dev:
+dev: migrate
     {{uvicorn}} app.main:app --host 127.0.0.1 --port 8000 --reload
 
 # run the production server
