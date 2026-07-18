@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,23 +10,25 @@ from app.core.database import get_db
 from app.models.api_token import ApiToken
 from app.models.user import User
 
+bearer_scheme = HTTPBearer(auto_error=False)
+
 
 async def get_current_user(
-    authorization: str = Header(..., description="Bearer <token>"),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """FastAPI dependency that extracts and validates a ``user_`` Bearer token.
 
     Returns the authenticated ``User`` or raises 401.
     """
-    if not authorization.startswith("Bearer "):
+    if credentials is None or credentials.scheme.lower() != "bearer":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authorization header format. Expected: Bearer <token>",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    raw_token = authorization.removeprefix("Bearer ")
+    raw_token = credentials.credentials
 
     if not raw_token.startswith("user_"):
         raise HTTPException(
