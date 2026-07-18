@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    Index,
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -35,6 +36,12 @@ class MonitoringRecord(Base):
         CheckConstraint(
             "face_center_y >= 0",
             name="ck_monitoring_records_face_center_y",
+        ),
+        Index(
+            "ix_monitoring_records_user_timestamp_id",
+            "user_id",
+            "timestamp",
+            "id",
         ),
     )
 
