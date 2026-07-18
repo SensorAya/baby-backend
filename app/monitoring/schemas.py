@@ -22,3 +22,13 @@ class MonitoringRecordResponse(MonitoringRecordCreate):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class MonitoringRecordHistoryResponse(BaseModel):
+    """One page of monitoring records for the authenticated user."""
+
+    items: list[MonitoringRecordResponse]
+    total: int
+    page: int
+    page_size: int
+    pages: int
