@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
 
+    LLM_API_KEY: str
+    LLM_BASE_URL: str
+    LLM_MODEL: str
+    LLM_MAX_COMPLETION_TOKENS: int = 4096
+
     @property
     def database_url(self) -> str:
         return (
