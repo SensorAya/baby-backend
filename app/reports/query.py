@@ -18,7 +18,7 @@ IMAGE_WIDTH = 1280
 IMAGE_HEIGHT = 720
 LOW_VISIBILITY_THRESHOLD = 20
 HIGH_VISIBILITY_THRESHOLD = 80
-REPORT_ANALYSIS_VERSION = "2.0"
+REPORT_ANALYSIS_VERSION = "2.1"
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,10 +72,21 @@ class MonitoringSummary:
     face_ratio_standard_deviation: float | None
     minimum_face_ratio: int | None
     maximum_face_ratio: int | None
+    sample_average_baby_ratio: float | None
+    time_weighted_average_baby_ratio: float | None
+    median_baby_ratio: float | None
+    p10_baby_ratio: float | None
+    p90_baby_ratio: float | None
+    baby_ratio_standard_deviation: float | None
+    minimum_baby_ratio: int | None
+    maximum_baby_ratio: int | None
     alarm_sample_count: int
     no_face_sample_count: int
     low_visibility_sample_count: int
     high_visibility_sample_count: int
+    no_baby_sample_count: int
+    low_baby_visibility_sample_count: int
+    high_baby_visibility_sample_count: int
     visible_center_sample_count: int
     invalid_center_sample_count: int
     average_face_center_x: float | None
@@ -85,13 +96,27 @@ class MonitoringSummary:
     normalized_center_x_standard_deviation: float | None
     normalized_center_y_standard_deviation: float | None
     edge_center_sample_count: int
+    visible_baby_center_sample_count: int
+    invalid_baby_center_sample_count: int
+    average_baby_center_x: float | None
+    average_baby_center_y: float | None
+    normalized_baby_center_x: float | None
+    normalized_baby_center_y: float | None
+    normalized_baby_center_x_standard_deviation: float | None
+    normalized_baby_center_y_standard_deviation: float | None
+    baby_edge_center_sample_count: int
     alarm_episode_count: int
     no_face_episode_count: int
     low_visibility_episode_count: int
+    no_baby_episode_count: int
+    low_baby_visibility_episode_count: int
     estimated_alarm_seconds: float
     estimated_no_face_seconds: float
     estimated_low_visibility_seconds: float
     estimated_high_visibility_seconds: float
+    estimated_no_baby_seconds: float
+    estimated_low_baby_visibility_seconds: float
+    estimated_high_baby_visibility_seconds: float
     discontinuity_count: int
     longest_interval_seconds: float | None
 
@@ -113,7 +138,10 @@ class MonitoringReportData:
     alarm_events: EventSummary
     no_face_events: EventSummary
     low_visibility_events: EventSummary
+    no_baby_events: EventSummary
+    low_baby_visibility_events: EventSummary
     face_visibility_trend: FaceVisibilityTrend
+    baby_visibility_trend: FaceVisibilityTrend
 
     @property
     def total_sample_count(self) -> int:
@@ -219,6 +247,22 @@ async def query_monitoring_report_data(
             event_row["longest_low_visibility_episode_seconds"] or 0
         ),
     )
+    no_baby_events = EventSummary(
+        episode_count=int(event_row["no_baby_episode_count"] or 0),
+        estimated_duration_seconds=float(event_row["no_baby_duration_seconds"] or 0),
+        longest_episode_seconds=float(
+            event_row["longest_no_baby_episode_seconds"] or 0
+        ),
+    )
+    low_baby_visibility_events = EventSummary(
+        episode_count=int(event_row["low_baby_visibility_episode_count"] or 0),
+        estimated_duration_seconds=float(
+            event_row["low_baby_visibility_duration_seconds"] or 0
+        ),
+        longest_episode_seconds=float(
+            event_row["longest_low_baby_visibility_episode_seconds"] or 0
+        ),
+    )
 
     period_seconds = max((end_at - start_at).total_seconds(), 1.0)
     observed_seconds = period.estimated_observed_seconds
@@ -265,7 +309,10 @@ async def query_monitoring_report_data(
         alarm_events=alarm_events,
         no_face_events=no_face_events,
         low_visibility_events=low_visibility_events,
+        no_baby_events=no_baby_events,
+        low_baby_visibility_events=low_baby_visibility_events,
         face_visibility_trend=_calculate_face_visibility_trend(daily),
+        baby_visibility_trend=_calculate_baby_visibility_trend(daily),
     )
 
 
@@ -299,6 +346,11 @@ def format_monitoring_report_data(data: MonitoringReportData) -> str:
                 "10-second sliding window; it is not a direct measurement of "
                 "the baby's presence or safety."
             ),
+            "baby_ratio_semantics": (
+                "Percentage of frames containing a detected baby target in the "
+                "prior 10-second sliding window; it is not proof of safety, "
+                "sleep state, health, or care quality."
+            ),
             "sample_metrics": (
                 "Counts and percentiles describe uploaded samples. They do not "
                 "equal elapsed time when sampling is irregular."
@@ -310,19 +362,26 @@ def format_monitoring_report_data(data: MonitoringReportData) -> str:
                 "observation."
             ),
             "episode_segmentation": (
-                "A new alarm/no-face/low-visibility episode starts on a state "
-                "transition or "
-                "after a sampling discontinuity longer than "
+                "A new alarm/no-face/no-baby/low-visibility episode starts on a "
+                "state transition or after a sampling discontinuity longer than "
                 f"{data.sampling_quality.continuity_gap_threshold_seconds} seconds."
             ),
             "visibility_thresholds": {
-                "no_face": "face_ratio == 0",
-                "low_visibility": (f"face_ratio < {LOW_VISIBILITY_THRESHOLD}"),
-                "high_visibility": (f"face_ratio >= {HIGH_VISIBILITY_THRESHOLD}"),
+                "face": {
+                    "no_face": "face_ratio == 0",
+                    "low_visibility": (f"face_ratio < {LOW_VISIBILITY_THRESHOLD}"),
+                    "high_visibility": (f"face_ratio >= {HIGH_VISIBILITY_THRESHOLD}"),
+                },
+                "baby": {
+                    "no_baby": "baby_ratio == 0",
+                    "low_visibility": (f"baby_ratio < {LOW_VISIBILITY_THRESHOLD}"),
+                    "high_visibility": (f"baby_ratio >= {HIGH_VISIBILITY_THRESHOLD}"),
+                },
             },
             "framing": (
-                f"Face centers are normalized from a {IMAGE_WIDTH}x{IMAGE_HEIGHT} "
-                "image. Edge-center means the center lies in the outer 10% border."
+                f"Face and baby centers are normalized from a {IMAGE_WIDTH}x"
+                f"{IMAGE_HEIGHT} image. Edge-center means the center lies in the "
+                "outer 10% border."
             ),
             "trend": (
                 "Daily time-weighted averages are summarized with a Theil-Sen "
@@ -336,7 +395,10 @@ def format_monitoring_report_data(data: MonitoringReportData) -> str:
         "alarm_events": _event_dict(data.alarm_events),
         "no_face_events": _event_dict(data.no_face_events),
         "low_visibility_events": _event_dict(data.low_visibility_events),
+        "no_baby_events": _event_dict(data.no_baby_events),
+        "low_baby_visibility_events": _event_dict(data.low_baby_visibility_events),
         "face_visibility_trend": _trend_dict(data.face_visibility_trend),
+        "baby_visibility_trend": _trend_dict(data.baby_visibility_trend),
         "daily_summaries": [
             _daily_summary_dict(summary, data) for summary in data.daily
         ],
@@ -356,13 +418,12 @@ async def query_monitoring_report_text(
     return format_monitoring_report_data(data)
 
 
-def _calculate_face_visibility_trend(
+def _calculate_visibility_trend(
     daily: tuple[DailyMonitoringSummary, ...],
+    ratio_attr: str,
 ) -> FaceVisibilityTrend:
     candidates = [
-        summary
-        for summary in daily
-        if summary.time_weighted_average_face_ratio is not None
+        summary for summary in daily if getattr(summary, ratio_attr) is not None
     ]
     active_day_count = len(candidates)
     typical_observed_seconds = (
@@ -377,10 +438,11 @@ def _calculate_face_visibility_trend(
         if summary.sample_count >= 3
         and summary.estimated_observed_seconds >= minimum_observed_seconds
     ]
-    points = [
-        (summary.day.toordinal(), summary.time_weighted_average_face_ratio)
-        for summary in eligible
-    ]
+    points: list[tuple[int, float]] = []
+    for summary in eligible:
+        value = getattr(summary, ratio_attr)
+        if value is not None:
+            points.append((summary.day.toordinal(), value))
     eligible_day_count = len(points)
     excluded_day_count = active_day_count - eligible_day_count
 
@@ -437,6 +499,18 @@ def _calculate_face_visibility_trend(
     )
 
 
+def _calculate_face_visibility_trend(
+    daily: tuple[DailyMonitoringSummary, ...],
+) -> FaceVisibilityTrend:
+    return _calculate_visibility_trend(daily, "time_weighted_average_face_ratio")
+
+
+def _calculate_baby_visibility_trend(
+    daily: tuple[DailyMonitoringSummary, ...],
+) -> FaceVisibilityTrend:
+    return _calculate_visibility_trend(daily, "time_weighted_average_baby_ratio")
+
+
 def _summary_from_row(
     row: Any,
     *,
@@ -457,10 +531,29 @@ def _summary_from_row(
         ),
         "minimum_face_ratio": _optional_int(row["minimum_face_ratio"]),
         "maximum_face_ratio": _optional_int(row["maximum_face_ratio"]),
+        "sample_average_baby_ratio": _optional_float(row["sample_average_baby_ratio"]),
+        "time_weighted_average_baby_ratio": _optional_float(
+            row["time_weighted_average_baby_ratio"]
+        ),
+        "median_baby_ratio": _optional_float(row["median_baby_ratio"]),
+        "p10_baby_ratio": _optional_float(row["p10_baby_ratio"]),
+        "p90_baby_ratio": _optional_float(row["p90_baby_ratio"]),
+        "baby_ratio_standard_deviation": _optional_float(
+            row["baby_ratio_standard_deviation"]
+        ),
+        "minimum_baby_ratio": _optional_int(row["minimum_baby_ratio"]),
+        "maximum_baby_ratio": _optional_int(row["maximum_baby_ratio"]),
         "alarm_sample_count": int(row["alarm_sample_count"] or 0),
         "no_face_sample_count": int(row["no_face_sample_count"] or 0),
         "low_visibility_sample_count": int(row["low_visibility_sample_count"] or 0),
         "high_visibility_sample_count": int(row["high_visibility_sample_count"] or 0),
+        "no_baby_sample_count": int(row["no_baby_sample_count"] or 0),
+        "low_baby_visibility_sample_count": int(
+            row["low_baby_visibility_sample_count"] or 0
+        ),
+        "high_baby_visibility_sample_count": int(
+            row["high_baby_visibility_sample_count"] or 0
+        ),
         "visible_center_sample_count": int(row["visible_center_sample_count"] or 0),
         "invalid_center_sample_count": int(row["invalid_center_sample_count"] or 0),
         "average_face_center_x": _optional_float(row["average_face_center_x"]),
@@ -474,9 +567,30 @@ def _summary_from_row(
             row["normalized_center_y_standard_deviation"]
         ),
         "edge_center_sample_count": int(row["edge_center_sample_count"] or 0),
+        "visible_baby_center_sample_count": int(
+            row["visible_baby_center_sample_count"] or 0
+        ),
+        "invalid_baby_center_sample_count": int(
+            row["invalid_baby_center_sample_count"] or 0
+        ),
+        "average_baby_center_x": _optional_float(row["average_baby_center_x"]),
+        "average_baby_center_y": _optional_float(row["average_baby_center_y"]),
+        "normalized_baby_center_x": _optional_float(row["normalized_baby_center_x"]),
+        "normalized_baby_center_y": _optional_float(row["normalized_baby_center_y"]),
+        "normalized_baby_center_x_standard_deviation": _optional_float(
+            row["normalized_baby_center_x_standard_deviation"]
+        ),
+        "normalized_baby_center_y_standard_deviation": _optional_float(
+            row["normalized_baby_center_y_standard_deviation"]
+        ),
+        "baby_edge_center_sample_count": int(row["baby_edge_center_sample_count"] or 0),
         "alarm_episode_count": int(row["alarm_episode_count"] or 0),
         "no_face_episode_count": int(row["no_face_episode_count"] or 0),
         "low_visibility_episode_count": int(row["low_visibility_episode_count"] or 0),
+        "no_baby_episode_count": int(row["no_baby_episode_count"] or 0),
+        "low_baby_visibility_episode_count": int(
+            row["low_baby_visibility_episode_count"] or 0
+        ),
         "estimated_alarm_seconds": float(row["estimated_alarm_seconds"] or 0),
         "estimated_no_face_seconds": float(row["estimated_no_face_seconds"] or 0),
         "estimated_low_visibility_seconds": float(
@@ -484,6 +598,13 @@ def _summary_from_row(
         ),
         "estimated_high_visibility_seconds": float(
             row["estimated_high_visibility_seconds"] or 0
+        ),
+        "estimated_no_baby_seconds": float(row["estimated_no_baby_seconds"] or 0),
+        "estimated_low_baby_visibility_seconds": float(
+            row["estimated_low_baby_visibility_seconds"] or 0
+        ),
+        "estimated_high_baby_visibility_seconds": float(
+            row["estimated_high_baby_visibility_seconds"] or 0
         ),
         "discontinuity_count": int(row["discontinuity_count"] or 0),
         "longest_interval_seconds": _optional_float(row["longest_interval_seconds"]),
@@ -506,10 +627,21 @@ def _empty_daily_summary(day: date) -> DailyMonitoringSummary:
         face_ratio_standard_deviation=None,
         minimum_face_ratio=None,
         maximum_face_ratio=None,
+        sample_average_baby_ratio=None,
+        time_weighted_average_baby_ratio=None,
+        median_baby_ratio=None,
+        p10_baby_ratio=None,
+        p90_baby_ratio=None,
+        baby_ratio_standard_deviation=None,
+        minimum_baby_ratio=None,
+        maximum_baby_ratio=None,
         alarm_sample_count=0,
         no_face_sample_count=0,
         low_visibility_sample_count=0,
         high_visibility_sample_count=0,
+        no_baby_sample_count=0,
+        low_baby_visibility_sample_count=0,
+        high_baby_visibility_sample_count=0,
         visible_center_sample_count=0,
         invalid_center_sample_count=0,
         average_face_center_x=None,
@@ -519,13 +651,27 @@ def _empty_daily_summary(day: date) -> DailyMonitoringSummary:
         normalized_center_x_standard_deviation=None,
         normalized_center_y_standard_deviation=None,
         edge_center_sample_count=0,
+        visible_baby_center_sample_count=0,
+        invalid_baby_center_sample_count=0,
+        average_baby_center_x=None,
+        average_baby_center_y=None,
+        normalized_baby_center_x=None,
+        normalized_baby_center_y=None,
+        normalized_baby_center_x_standard_deviation=None,
+        normalized_baby_center_y_standard_deviation=None,
+        baby_edge_center_sample_count=0,
         alarm_episode_count=0,
         no_face_episode_count=0,
         low_visibility_episode_count=0,
+        no_baby_episode_count=0,
+        low_baby_visibility_episode_count=0,
         estimated_alarm_seconds=0,
         estimated_no_face_seconds=0,
         estimated_low_visibility_seconds=0,
         estimated_high_visibility_seconds=0,
+        estimated_no_baby_seconds=0,
+        estimated_low_baby_visibility_seconds=0,
+        estimated_high_baby_visibility_seconds=0,
         discontinuity_count=0,
         longest_interval_seconds=None,
     )
@@ -536,7 +682,8 @@ def _summary_dict(summary: MonitoringSummary) -> dict[str, Any]:
     result.pop("day", None)
     sample_count = summary.sample_count
     observed_seconds = summary.estimated_observed_seconds
-    visible_count = summary.visible_center_sample_count
+    face_visible_count = summary.visible_center_sample_count
+    baby_visible_count = summary.visible_baby_center_sample_count
     result.update(
         {
             "alarm_sample_percentage": _percentage(
@@ -555,6 +702,18 @@ def _summary_dict(summary: MonitoringSummary) -> dict[str, Any]:
                 summary.high_visibility_sample_count,
                 sample_count,
             ),
+            "no_baby_sample_percentage": _percentage(
+                summary.no_baby_sample_count,
+                sample_count,
+            ),
+            "low_baby_visibility_sample_percentage": _percentage(
+                summary.low_baby_visibility_sample_count,
+                sample_count,
+            ),
+            "high_baby_visibility_sample_percentage": _percentage(
+                summary.high_baby_visibility_sample_count,
+                sample_count,
+            ),
             "visible_center_sample_percentage": _percentage(
                 summary.visible_center_sample_count,
                 sample_count,
@@ -565,7 +724,19 @@ def _summary_dict(summary: MonitoringSummary) -> dict[str, Any]:
             ),
             "edge_center_percentage_of_visible": _percentage(
                 summary.edge_center_sample_count,
-                visible_count,
+                face_visible_count,
+            ),
+            "visible_baby_center_sample_percentage": _percentage(
+                summary.visible_baby_center_sample_count,
+                sample_count,
+            ),
+            "invalid_baby_center_sample_percentage": _percentage(
+                summary.invalid_baby_center_sample_count,
+                sample_count,
+            ),
+            "baby_edge_center_percentage_of_visible": _percentage(
+                summary.baby_edge_center_sample_count,
+                baby_visible_count,
             ),
             "estimated_alarm_time_percentage": _percentage(
                 summary.estimated_alarm_seconds,
@@ -581,6 +752,18 @@ def _summary_dict(summary: MonitoringSummary) -> dict[str, Any]:
             ),
             "estimated_high_visibility_time_percentage": _percentage(
                 summary.estimated_high_visibility_seconds,
+                observed_seconds,
+            ),
+            "estimated_no_baby_time_percentage": _percentage(
+                summary.estimated_no_baby_seconds,
+                observed_seconds,
+            ),
+            "estimated_low_baby_visibility_time_percentage": _percentage(
+                summary.estimated_low_baby_visibility_seconds,
+                observed_seconds,
+            ),
+            "estimated_high_baby_visibility_time_percentage": _percentage(
+                summary.estimated_high_baby_visibility_seconds,
                 observed_seconds,
             ),
         }
@@ -622,6 +805,11 @@ def _daily_summary_dict(
         "median_face_ratio",
         "p10_face_ratio",
         "p90_face_ratio",
+        "sample_average_baby_ratio",
+        "time_weighted_average_baby_ratio",
+        "median_baby_ratio",
+        "p10_baby_ratio",
+        "p90_baby_ratio",
         "no_face_sample_percentage",
         "low_visibility_sample_percentage",
         "high_visibility_sample_percentage",
@@ -630,6 +818,14 @@ def _daily_summary_dict(
         "estimated_high_visibility_time_percentage",
         "no_face_episode_count",
         "low_visibility_episode_count",
+        "no_baby_sample_percentage",
+        "low_baby_visibility_sample_percentage",
+        "high_baby_visibility_sample_percentage",
+        "estimated_no_baby_time_percentage",
+        "estimated_low_baby_visibility_time_percentage",
+        "estimated_high_baby_visibility_time_percentage",
+        "no_baby_episode_count",
+        "low_baby_visibility_episode_count",
         "alarm_sample_percentage",
         "estimated_alarm_time_percentage",
         "alarm_episode_count",
@@ -641,6 +837,14 @@ def _daily_summary_dict(
         "normalized_center_x_standard_deviation",
         "normalized_center_y_standard_deviation",
         "edge_center_percentage_of_visible",
+        "visible_baby_center_sample_percentage",
+        "invalid_baby_center_sample_count",
+        "invalid_baby_center_sample_percentage",
+        "normalized_baby_center_x",
+        "normalized_baby_center_y",
+        "normalized_baby_center_x_standard_deviation",
+        "normalized_baby_center_y_standard_deviation",
+        "baby_edge_center_percentage_of_visible",
         "discontinuity_count",
         "longest_interval_seconds",
     )
@@ -740,11 +944,15 @@ WITH ordered AS (
         face_ratio,
         face_center_x,
         face_center_y,
+        baby_ratio,
+        baby_center_x,
+        baby_center_y,
         alarm_active,
         LAG(timestamp) OVER (ORDER BY timestamp, id) AS previous_timestamp,
         LEAD(timestamp) OVER (ORDER BY timestamp, id) AS next_timestamp,
         LAG(alarm_active) OVER (ORDER BY timestamp, id) AS previous_alarm_active,
-        LAG(face_ratio) OVER (ORDER BY timestamp, id) AS previous_face_ratio
+        LAG(face_ratio) OVER (ORDER BY timestamp, id) AS previous_face_ratio,
+        LAG(baby_ratio) OVER (ORDER BY timestamp, id) AS previous_baby_ratio
     FROM monitoring_records
     WHERE user_id = :user_id
       AND timestamp >= :start_timestamp
@@ -778,6 +986,18 @@ WITH ordered AS (
                 OR face_center_y > :image_height
             )
         ) AS has_invalid_center,
+        (
+            (baby_center_x <> 0 OR baby_center_y <> 0)
+            AND baby_center_x <= :image_width
+            AND baby_center_y <= :image_height
+        ) AS has_visible_baby_center,
+        (
+            (baby_center_x <> 0 OR baby_center_y <> 0)
+            AND (
+                baby_center_x > :image_width
+                OR baby_center_y > :image_height
+            )
+        ) AS has_invalid_baby_center,
         CASE
             WHEN alarm_active IS TRUE
              AND (
@@ -808,6 +1028,26 @@ WITH ordered AS (
             THEN 1 ELSE 0
         END AS low_visibility_episode_start,
         CASE
+            WHEN baby_ratio = 0
+             AND (
+                previous_baby_ratio IS NULL
+                OR previous_baby_ratio <> 0
+                OR previous_timestamp IS NULL
+                OR timestamp - previous_timestamp > :gap_threshold
+             )
+            THEN 1 ELSE 0
+        END AS no_baby_episode_start,
+        CASE
+            WHEN baby_ratio < :low_visibility_threshold
+             AND (
+                previous_baby_ratio IS NULL
+                OR previous_baby_ratio >= :low_visibility_threshold
+                OR previous_timestamp IS NULL
+                OR timestamp - previous_timestamp > :gap_threshold
+             )
+            THEN 1 ELSE 0
+        END AS low_baby_visibility_episode_start,
+        CASE
             WHEN previous_timestamp IS NOT NULL
              AND timestamp - previous_timestamp > :gap_threshold
             THEN 1 ELSE 0
@@ -835,12 +1075,29 @@ _SUMMARY_SELECT = """
     stddev_pop(face_ratio) AS face_ratio_standard_deviation,
     MIN(face_ratio) AS minimum_face_ratio,
     MAX(face_ratio) AS maximum_face_ratio,
+    AVG(baby_ratio) AS sample_average_baby_ratio,
+    SUM(baby_ratio * weight_seconds) / NULLIF(SUM(weight_seconds), 0)
+        AS time_weighted_average_baby_ratio,
+    percentile_cont(0.5) WITHIN GROUP (ORDER BY baby_ratio)
+        AS median_baby_ratio,
+    percentile_cont(0.1) WITHIN GROUP (ORDER BY baby_ratio)
+        AS p10_baby_ratio,
+    percentile_cont(0.9) WITHIN GROUP (ORDER BY baby_ratio)
+        AS p90_baby_ratio,
+    stddev_pop(baby_ratio) AS baby_ratio_standard_deviation,
+    MIN(baby_ratio) AS minimum_baby_ratio,
+    MAX(baby_ratio) AS maximum_baby_ratio,
     COUNT(*) FILTER (WHERE alarm_active IS TRUE) AS alarm_sample_count,
     COUNT(*) FILTER (WHERE face_ratio = 0) AS no_face_sample_count,
     COUNT(*) FILTER (WHERE face_ratio < :low_visibility_threshold)
         AS low_visibility_sample_count,
     COUNT(*) FILTER (WHERE face_ratio >= :high_visibility_threshold)
         AS high_visibility_sample_count,
+    COUNT(*) FILTER (WHERE baby_ratio = 0) AS no_baby_sample_count,
+    COUNT(*) FILTER (WHERE baby_ratio < :low_visibility_threshold)
+        AS low_baby_visibility_sample_count,
+    COUNT(*) FILTER (WHERE baby_ratio >= :high_visibility_threshold)
+        AS high_baby_visibility_sample_count,
     COUNT(*) FILTER (WHERE has_visible_center) AS visible_center_sample_count,
     COUNT(*) FILTER (WHERE has_invalid_center) AS invalid_center_sample_count,
     AVG(face_center_x) FILTER (WHERE has_visible_center)
@@ -866,10 +1123,40 @@ _SUMMARY_SELECT = """
             OR face_center_y > :edge_bottom
           )
     ) AS edge_center_sample_count,
+    COUNT(*) FILTER (WHERE has_visible_baby_center)
+        AS visible_baby_center_sample_count,
+    COUNT(*) FILTER (WHERE has_invalid_baby_center)
+        AS invalid_baby_center_sample_count,
+    AVG(baby_center_x) FILTER (WHERE has_visible_baby_center)
+        AS average_baby_center_x,
+    AVG(baby_center_y) FILTER (WHERE has_visible_baby_center)
+        AS average_baby_center_y,
+    AVG(baby_center_x::double precision / :image_width)
+        FILTER (WHERE has_visible_baby_center) AS normalized_baby_center_x,
+    AVG(baby_center_y::double precision / :image_height)
+        FILTER (WHERE has_visible_baby_center) AS normalized_baby_center_y,
+    stddev_pop(baby_center_x::double precision / :image_width)
+        FILTER (WHERE has_visible_baby_center)
+        AS normalized_baby_center_x_standard_deviation,
+    stddev_pop(baby_center_y::double precision / :image_height)
+        FILTER (WHERE has_visible_baby_center)
+        AS normalized_baby_center_y_standard_deviation,
+    COUNT(*) FILTER (
+        WHERE has_visible_baby_center
+          AND (
+            baby_center_x < :edge_left
+            OR baby_center_x > :edge_right
+            OR baby_center_y < :edge_top
+            OR baby_center_y > :edge_bottom
+          )
+    ) AS baby_edge_center_sample_count,
     COALESCE(SUM(alarm_episode_start), 0) AS alarm_episode_count,
     COALESCE(SUM(no_face_episode_start), 0) AS no_face_episode_count,
     COALESCE(SUM(low_visibility_episode_start), 0)
         AS low_visibility_episode_count,
+    COALESCE(SUM(no_baby_episode_start), 0) AS no_baby_episode_count,
+    COALESCE(SUM(low_baby_visibility_episode_start), 0)
+        AS low_baby_visibility_episode_count,
     COALESCE(SUM(weight_seconds) FILTER (WHERE alarm_active IS TRUE), 0)
         AS estimated_alarm_seconds,
     COALESCE(SUM(weight_seconds) FILTER (WHERE face_ratio = 0), 0)
@@ -886,6 +1173,20 @@ _SUMMARY_SELECT = """
         ),
         0
     ) AS estimated_high_visibility_seconds,
+    COALESCE(SUM(weight_seconds) FILTER (WHERE baby_ratio = 0), 0)
+        AS estimated_no_baby_seconds,
+    COALESCE(
+        SUM(weight_seconds) FILTER (
+            WHERE baby_ratio < :low_visibility_threshold
+        ),
+        0
+    ) AS estimated_low_baby_visibility_seconds,
+    COALESCE(
+        SUM(weight_seconds) FILTER (
+            WHERE baby_ratio >= :high_visibility_threshold
+        ),
+        0
+    ) AS estimated_high_baby_visibility_seconds,
     COALESCE(SUM(discontinuity), 0) AS discontinuity_count,
     MAX(interval_seconds) FILTER (WHERE interval_seconds > 0)
         AS longest_interval_seconds
@@ -906,11 +1207,13 @@ WITH ordered AS (
         id,
         timestamp,
         face_ratio,
+        baby_ratio,
         alarm_active,
         LAG(timestamp) OVER (ORDER BY timestamp, id) AS previous_timestamp,
         LEAD(timestamp) OVER (ORDER BY timestamp, id) AS next_timestamp,
         LAG(alarm_active) OVER (ORDER BY timestamp, id) AS previous_alarm_active,
-        LAG(face_ratio) OVER (ORDER BY timestamp, id) AS previous_face_ratio
+        LAG(face_ratio) OVER (ORDER BY timestamp, id) AS previous_face_ratio,
+        LAG(baby_ratio) OVER (ORDER BY timestamp, id) AS previous_baby_ratio
     FROM monitoring_records
     WHERE user_id = :user_id
       AND timestamp >= :start_timestamp
@@ -959,7 +1262,27 @@ WITH ordered AS (
                 OR timestamp - previous_timestamp > :gap_threshold
              )
             THEN 1 ELSE 0
-        END AS low_visibility_start
+        END AS low_visibility_start,
+        CASE
+            WHEN baby_ratio = 0
+             AND (
+                previous_baby_ratio IS NULL
+                OR previous_baby_ratio <> 0
+                OR previous_timestamp IS NULL
+                OR timestamp - previous_timestamp > :gap_threshold
+             )
+            THEN 1 ELSE 0
+        END AS no_baby_start,
+        CASE
+            WHEN baby_ratio < :low_visibility_threshold
+             AND (
+                previous_baby_ratio IS NULL
+                OR previous_baby_ratio >= :low_visibility_threshold
+                OR previous_timestamp IS NULL
+                OR timestamp - previous_timestamp > :gap_threshold
+             )
+            THEN 1 ELSE 0
+        END AS low_baby_visibility_start
     FROM ordered
 ), grouped AS (
     SELECT
@@ -967,7 +1290,10 @@ WITH ordered AS (
         SUM(alarm_start) OVER (ORDER BY timestamp, id) AS alarm_group,
         SUM(no_face_start) OVER (ORDER BY timestamp, id) AS no_face_group,
         SUM(low_visibility_start) OVER (ORDER BY timestamp, id)
-            AS low_visibility_group
+            AS low_visibility_group,
+        SUM(no_baby_start) OVER (ORDER BY timestamp, id) AS no_baby_group,
+        SUM(low_baby_visibility_start) OVER (ORDER BY timestamp, id)
+            AS low_baby_visibility_group
     FROM marked
 ), alarm_episodes AS (
     SELECT alarm_group, SUM(weight_seconds) AS duration_seconds
@@ -984,6 +1310,16 @@ WITH ordered AS (
     FROM grouped
     WHERE face_ratio < :low_visibility_threshold
     GROUP BY low_visibility_group
+), no_baby_episodes AS (
+    SELECT no_baby_group, SUM(weight_seconds) AS duration_seconds
+    FROM grouped
+    WHERE baby_ratio = 0
+    GROUP BY no_baby_group
+), low_baby_visibility_episodes AS (
+    SELECT low_baby_visibility_group, SUM(weight_seconds) AS duration_seconds
+    FROM grouped
+    WHERE baby_ratio < :low_visibility_threshold
+    GROUP BY low_baby_visibility_group
 )
 SELECT
     (SELECT COUNT(*) FROM alarm_episodes) AS alarm_episode_count,
@@ -1001,5 +1337,16 @@ SELECT
     COALESCE((SELECT SUM(duration_seconds) FROM low_visibility_episodes), 0)
         AS low_visibility_duration_seconds,
     COALESCE((SELECT MAX(duration_seconds) FROM low_visibility_episodes), 0)
-        AS longest_low_visibility_episode_seconds
+        AS longest_low_visibility_episode_seconds,
+    (SELECT COUNT(*) FROM no_baby_episodes) AS no_baby_episode_count,
+    COALESCE((SELECT SUM(duration_seconds) FROM no_baby_episodes), 0)
+        AS no_baby_duration_seconds,
+    COALESCE((SELECT MAX(duration_seconds) FROM no_baby_episodes), 0)
+        AS longest_no_baby_episode_seconds,
+    (SELECT COUNT(*) FROM low_baby_visibility_episodes)
+        AS low_baby_visibility_episode_count,
+    COALESCE((SELECT SUM(duration_seconds) FROM low_baby_visibility_episodes), 0)
+        AS low_baby_visibility_duration_seconds,
+    COALESCE((SELECT MAX(duration_seconds) FROM low_baby_visibility_episodes), 0)
+        AS longest_low_baby_visibility_episode_seconds
 """
