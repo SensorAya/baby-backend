@@ -37,6 +37,18 @@ class MonitoringRecord(Base):
             "face_center_y >= 0",
             name="ck_monitoring_records_face_center_y",
         ),
+        CheckConstraint(
+            "baby_center_x >= 0",
+            name="ck_monitoring_records_baby_center_x",
+        ),
+        CheckConstraint(
+            "baby_center_y >= 0",
+            name="ck_monitoring_records_baby_center_y",
+        ),
+        CheckConstraint(
+            "baby_ratio BETWEEN 0 AND 100",
+            name="ck_monitoring_records_baby_ratio",
+        ),
         Index(
             "ix_monitoring_records_user_timestamp_id",
             "user_id",
@@ -60,6 +72,15 @@ class MonitoringRecord(Base):
     face_center_y: Mapped[int] = mapped_column(Integer, nullable=False)
     alarm_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
+    )
+    baby_center_x: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    baby_center_y: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    baby_ratio: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
