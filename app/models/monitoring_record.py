@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     Index,
+    String,
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -18,6 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models import Base
 
 if TYPE_CHECKING:
+    from app.models.monitoring_session import MonitoringSession
     from app.models.user import User
 
 
@@ -49,6 +51,14 @@ class MonitoringRecord(Base):
             "baby_ratio BETWEEN 0 AND 100",
             name="ck_monitoring_records_baby_ratio",
         ),
+        CheckConstraint(
+            "activity_level BETWEEN 0 AND 100",
+            name="ck_monitoring_records_activity_level",
+        ),
+        CheckConstraint(
+            "event IS NULL OR event IN ('start', 'stop')",
+            name="ck_monitoring_records_event",
+        ),
         Index(
             "ix_monitoring_records_user_timestamp_id",
             "user_id",
@@ -64,6 +74,12 @@ class MonitoringRecord(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
+    )
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("monitoring_sessions.id", ondelete="CASCADE"),
+        nullable=True,
         index=True,
     )
     timestamp: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
@@ -82,8 +98,13 @@ class MonitoringRecord(Base):
     baby_ratio: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    event: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    activity_level: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
     user: Mapped["User"] = relationship(back_populates="monitoring_records")
+    session: Mapped["MonitoringSession | None"] = relationship(back_populates="records")

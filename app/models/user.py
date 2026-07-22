@@ -9,7 +9,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models import Base
 
 if TYPE_CHECKING:
+    from app.models.alarm_event import AlarmEvent
     from app.models.monitoring_record import MonitoringRecord
+    from app.models.monitoring_session import MonitoringSession
 
 
 class User(Base):
@@ -27,6 +29,16 @@ class User(Base):
     )
 
     monitoring_records: Mapped[list["MonitoringRecord"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    monitoring_sessions: Mapped[list["MonitoringSession"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    alarm_events: Mapped[list["AlarmEvent"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
         passive_deletes=True,

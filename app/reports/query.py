@@ -47,6 +47,20 @@ class EventSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class ActivitySummary:
+    sample_average_activity_level: float | None
+    time_weighted_average_activity_level: float | None
+    median_activity_level: float | None
+    p90_activity_level: float | None
+    stationary_sample_count: int
+    minor_activity_sample_count: int
+    major_activity_sample_count: int
+    estimated_stationary_seconds: float
+    estimated_minor_activity_seconds: float
+    estimated_major_activity_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
 class FaceVisibilityTrend:
     active_day_count: int
     eligible_day_count: int
@@ -140,6 +154,7 @@ class MonitoringReportData:
     low_visibility_events: EventSummary
     no_baby_events: EventSummary
     low_baby_visibility_events: EventSummary
+    activity: ActivitySummary
     face_visibility_trend: FaceVisibilityTrend
     baby_visibility_trend: FaceVisibilityTrend
 
@@ -158,6 +173,8 @@ async def query_monitoring_report_data(
     days: int,
     *,
     now: datetime | None = None,
+    start_at: datetime | None = None,
+    session_id: UUID | None = None,
 ) -> MonitoringReportData:
     """Query robust report statistics for recent local calendar days.
 
@@ -179,13 +196,20 @@ async def query_monitoring_report_data(
 
     end_local = end_at.astimezone(report_timezone)
     start_day = end_local.date() - timedelta(days=days - 1)
-    start_local = datetime.combine(start_day, time.min, tzinfo=report_timezone)
-    start_at = start_local.astimezone(timezone.utc)
+    if start_at is None:
+        start_local = datetime.combine(start_day, time.min, tzinfo=report_timezone)
+        start_at = start_local.astimezone(timezone.utc)
+    else:
+        if start_at.tzinfo is None:
+            raise ValueError("start_at must be timezone-aware")
+        start_at = start_at.astimezone(timezone.utc)
+        start_day = start_at.astimezone(report_timezone).date()
 
     params: dict[str, Any] = {
         "user_id": user_id,
         "start_timestamp": int(start_at.timestamp()),
         "end_timestamp": int(end_at.timestamp()),
+        "session_id": str(session_id) if session_id is not None else None,
         "timezone_name": REPORT_TIMEZONE,
         "low_visibility_threshold": LOW_VISIBILITY_THRESHOLD,
         "high_visibility_threshold": HIGH_VISIBILITY_THRESHOLD,
@@ -263,6 +287,33 @@ async def query_monitoring_report_data(
             event_row["longest_low_baby_visibility_episode_seconds"] or 0
         ),
     )
+    activity_row = (await db.execute(text(_ACTIVITY_QUERY), params)).mappings().one()
+    activity = ActivitySummary(
+        sample_average_activity_level=_optional_float(
+            activity_row["sample_average_activity_level"]
+        ),
+        time_weighted_average_activity_level=_optional_float(
+            activity_row["time_weighted_average_activity_level"]
+        ),
+        median_activity_level=_optional_float(activity_row["median_activity_level"]),
+        p90_activity_level=_optional_float(activity_row["p90_activity_level"]),
+        stationary_sample_count=int(activity_row["stationary_sample_count"] or 0),
+        minor_activity_sample_count=int(
+            activity_row["minor_activity_sample_count"] or 0
+        ),
+        major_activity_sample_count=int(
+            activity_row["major_activity_sample_count"] or 0
+        ),
+        estimated_stationary_seconds=float(
+            activity_row["estimated_stationary_seconds"] or 0
+        ),
+        estimated_minor_activity_seconds=float(
+            activity_row["estimated_minor_activity_seconds"] or 0
+        ),
+        estimated_major_activity_seconds=float(
+            activity_row["estimated_major_activity_seconds"] or 0
+        ),
+    )
 
     period_seconds = max((end_at - start_at).total_seconds(), 1.0)
     observed_seconds = period.estimated_observed_seconds
@@ -311,6 +362,7 @@ async def query_monitoring_report_data(
         low_visibility_events=low_visibility_events,
         no_baby_events=no_baby_events,
         low_baby_visibility_events=low_baby_visibility_events,
+        activity=activity,
         face_visibility_trend=_calculate_face_visibility_trend(daily),
         baby_visibility_trend=_calculate_baby_visibility_trend(daily),
     )
@@ -389,6 +441,12 @@ def format_monitoring_report_data(data: MonitoringReportData) -> str:
                 "of the typical active-day observed time are excluded from trend "
                 "estimation."
             ),
+            "activity_level": (
+                "The edge detector averages Euclidean baby-center movement over "
+                "a 30-frame sliding window and maps it to 0-100. Values below 10 "
+                "are stationary, 10-30 are minor movement, and above 30 are major "
+                "movement. These are engineering motion bands, not sleep or health states."
+            ),
         },
         "data_quality": _sampling_quality_dict(data.sampling_quality),
         "period_summary": _summary_dict(data.period),
@@ -399,6 +457,7 @@ def format_monitoring_report_data(data: MonitoringReportData) -> str:
         "low_baby_visibility_events": _event_dict(data.low_baby_visibility_events),
         "face_visibility_trend": _trend_dict(data.face_visibility_trend),
         "baby_visibility_trend": _trend_dict(data.baby_visibility_trend),
+        "activity": _activity_dict(data.activity, data.period),
         "daily_summaries": [
             _daily_summary_dict(summary, data) for summary in data.daily
         ],
@@ -412,9 +471,18 @@ async def query_monitoring_report_text(
     days: int,
     *,
     now: datetime | None = None,
+    start_at: datetime | None = None,
+    session_id: UUID | None = None,
 ) -> str:
     """Query and format monitoring data for internal report generation."""
-    data = await query_monitoring_report_data(db, user_id, days, now=now)
+    data = await query_monitoring_report_data(
+        db,
+        user_id,
+        days,
+        now=now,
+        start_at=start_at,
+        session_id=session_id,
+    )
     return format_monitoring_report_data(data)
 
 
@@ -875,6 +943,39 @@ def _event_dict(summary: EventSummary) -> dict[str, Any]:
     return _round_nested(asdict(summary))
 
 
+def _activity_dict(
+    summary: ActivitySummary,
+    period: MonitoringSummary,
+) -> dict[str, Any]:
+    result = asdict(summary)
+    result.update(
+        {
+            "stationary_sample_percentage": _percentage(
+                summary.stationary_sample_count, period.sample_count
+            ),
+            "minor_activity_sample_percentage": _percentage(
+                summary.minor_activity_sample_count, period.sample_count
+            ),
+            "major_activity_sample_percentage": _percentage(
+                summary.major_activity_sample_count, period.sample_count
+            ),
+            "estimated_stationary_time_percentage": _percentage(
+                summary.estimated_stationary_seconds,
+                period.estimated_observed_seconds,
+            ),
+            "estimated_minor_activity_time_percentage": _percentage(
+                summary.estimated_minor_activity_seconds,
+                period.estimated_observed_seconds,
+            ),
+            "estimated_major_activity_time_percentage": _percentage(
+                summary.estimated_major_activity_seconds,
+                period.estimated_observed_seconds,
+            ),
+        }
+    )
+    return _round_nested(result)
+
+
 def _trend_dict(summary: FaceVisibilityTrend) -> dict[str, Any]:
     return _round_nested(asdict(summary))
 
@@ -922,6 +1023,14 @@ WITH ordered AS (
     WHERE user_id = :user_id
       AND timestamp >= :start_timestamp
       AND timestamp <= :end_timestamp
+      AND session_id IN (
+        SELECT id FROM monitoring_sessions
+        WHERE user_id = :user_id AND ended_at IS NOT NULL
+      )
+      AND (
+        CAST(:session_id AS uuid) IS NULL
+        OR session_id = CAST(:session_id AS uuid)
+      )
 )
 SELECT
     MIN(timestamp) AS first_timestamp,
@@ -947,6 +1056,7 @@ WITH ordered AS (
         baby_ratio,
         baby_center_x,
         baby_center_y,
+        activity_level,
         alarm_active,
         LAG(timestamp) OVER (ORDER BY timestamp, id) AS previous_timestamp,
         LEAD(timestamp) OVER (ORDER BY timestamp, id) AS next_timestamp,
@@ -957,6 +1067,14 @@ WITH ordered AS (
     WHERE user_id = :user_id
       AND timestamp >= :start_timestamp
       AND timestamp <= :end_timestamp
+      AND session_id IN (
+        SELECT id FROM monitoring_sessions
+        WHERE user_id = :user_id AND ended_at IS NOT NULL
+      )
+      AND (
+        CAST(:session_id AS uuid) IS NULL
+        OR session_id = CAST(:session_id AS uuid)
+      )
 ), prepared AS (
     SELECT
         *,
@@ -1201,6 +1319,35 @@ _DAILY_SUMMARY_QUERY = (
 
 _PERIOD_SUMMARY_QUERY = _COMMON_CTE + "SELECT" + _SUMMARY_SELECT + " FROM prepared"
 
+_ACTIVITY_QUERY = (
+    _COMMON_CTE
+    + """
+SELECT
+    AVG(activity_level) AS sample_average_activity_level,
+    SUM(activity_level * weight_seconds) / NULLIF(SUM(weight_seconds), 0)
+        AS time_weighted_average_activity_level,
+    percentile_cont(0.5) WITHIN GROUP (ORDER BY activity_level)
+        AS median_activity_level,
+    percentile_cont(0.9) WITHIN GROUP (ORDER BY activity_level)
+        AS p90_activity_level,
+    COUNT(*) FILTER (WHERE activity_level < 10) AS stationary_sample_count,
+    COUNT(*) FILTER (WHERE activity_level >= 10 AND activity_level <= 30)
+        AS minor_activity_sample_count,
+    COUNT(*) FILTER (WHERE activity_level > 30) AS major_activity_sample_count,
+    COALESCE(SUM(weight_seconds) FILTER (WHERE activity_level < 10), 0)
+        AS estimated_stationary_seconds,
+    COALESCE(
+        SUM(weight_seconds) FILTER (
+            WHERE activity_level >= 10 AND activity_level <= 30
+        ),
+        0
+    ) AS estimated_minor_activity_seconds,
+    COALESCE(SUM(weight_seconds) FILTER (WHERE activity_level > 30), 0)
+        AS estimated_major_activity_seconds
+FROM prepared
+"""
+)
+
 _EVENT_QUERY = """
 WITH ordered AS (
     SELECT
@@ -1218,6 +1365,14 @@ WITH ordered AS (
     WHERE user_id = :user_id
       AND timestamp >= :start_timestamp
       AND timestamp <= :end_timestamp
+      AND session_id IN (
+        SELECT id FROM monitoring_sessions
+        WHERE user_id = :user_id AND ended_at IS NOT NULL
+      )
+      AND (
+        CAST(:session_id AS uuid) IS NULL
+        OR session_id = CAST(:session_id AS uuid)
+      )
 ), marked AS (
     SELECT
         *,

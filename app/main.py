@@ -2,6 +2,7 @@ import os
 
 from fastapi import FastAPI
 
+from app.alarms import router as alarms_router
 from app.auth import router as auth_router
 from app.health import router as health_router
 from app.monitoring import router as monitoring_router
@@ -24,3 +25,4 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(monitoring_router)
 app.include_router(reports_router)
+app.include_router(alarms_router)

@@ -13,23 +13,8 @@ from app.models.user import User
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    """FastAPI dependency that extracts and validates a ``user_`` Bearer token.
-
-    Returns the authenticated ``User`` or raises 401.
-    """
-    if credentials is None or credentials.scheme.lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authorization header format. Expected: Bearer <token>",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    raw_token = credentials.credentials
-
+async def authenticate_token(raw_token: str, db: AsyncSession) -> User:
+    """Resolve one raw API token to its user or raise the standard 401 response."""
     if not raw_token.startswith("user_"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -38,7 +23,6 @@ async def get_current_user(
         )
 
     token_hash = hash_token(raw_token)
-
     result = await db.execute(select(ApiToken).where(ApiToken.token_hash == token_hash))
     api_token = result.scalar_one_or_none()
 
@@ -60,12 +44,28 @@ async def get_current_user(
 
     result = await db.execute(select(User).where(User.id == api_token.user_id))
     user = result.scalar_one_or_none()
-
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User for token no longer exists",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
     return user
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """FastAPI dependency that extracts and validates a ``user_`` Bearer token.
+
+    Returns the authenticated ``User`` or raises 401.
+    """
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authorization header format. Expected: Bearer <token>",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return await authenticate_token(credentials.credentials, db)

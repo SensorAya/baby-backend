@@ -8,6 +8,7 @@ from importlib import import_module
 from typing import Any
 
 _QUERY_EXPORTS = {
+    "ActivitySummary",
     "DailyMonitoringSummary",
     "EventSummary",
     "FaceVisibilityTrend",
