@@ -18,7 +18,7 @@ IMAGE_WIDTH = 1280
 IMAGE_HEIGHT = 720
 LOW_VISIBILITY_THRESHOLD = 20
 HIGH_VISIBILITY_THRESHOLD = 80
-REPORT_ANALYSIS_VERSION = "2.1"
+REPORT_ANALYSIS_VERSION = "2.2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1093,28 +1093,26 @@ WITH ordered AS (
             :state_hold_cap
         )::double precision AS weight_seconds,
         (
-            (face_center_x <> 0 OR face_center_y <> 0)
+            face_center_x >= 0
+            AND face_center_y >= 0
             AND face_center_x <= :image_width
             AND face_center_y <= :image_height
         ) AS has_visible_center,
         (
-            (face_center_x <> 0 OR face_center_y <> 0)
-            AND (
-                face_center_x > :image_width
-                OR face_center_y > :image_height
-            )
+            (face_center_x = -1) <> (face_center_y = -1)
+            OR face_center_x > :image_width
+            OR face_center_y > :image_height
         ) AS has_invalid_center,
         (
-            (baby_center_x <> 0 OR baby_center_y <> 0)
+            baby_center_x >= 0
+            AND baby_center_y >= 0
             AND baby_center_x <= :image_width
             AND baby_center_y <= :image_height
         ) AS has_visible_baby_center,
         (
-            (baby_center_x <> 0 OR baby_center_y <> 0)
-            AND (
-                baby_center_x > :image_width
-                OR baby_center_y > :image_height
-            )
+            (baby_center_x = -1) <> (baby_center_y = -1)
+            OR baby_center_x > :image_width
+            OR baby_center_y > :image_height
         ) AS has_invalid_baby_center,
         CASE
             WHEN alarm_active IS TRUE

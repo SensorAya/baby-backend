@@ -17,11 +17,31 @@ class MonitoringRecordCreate(BaseModel):
 
     timestamp: int = Field(..., ge=0, examples=[1752001234])
     face_ratio: int = Field(..., ge=0, le=100, examples=[85])
-    face_center_x: int = Field(..., ge=0, examples=[640])
-    face_center_y: int = Field(..., ge=0, examples=[360])
+    face_center_x: int = Field(
+        ...,
+        ge=-1,
+        description="-1 means that no face center was detected",
+        examples=[640],
+    )
+    face_center_y: int = Field(
+        ...,
+        ge=-1,
+        description="-1 means that no face center was detected",
+        examples=[360],
+    )
     event: MonitoringEvent | None = Field(..., examples=["start"])
-    baby_center_x: int = Field(..., ge=0, examples=[640])
-    baby_center_y: int = Field(..., ge=0, examples=[360])
+    baby_center_x: int = Field(
+        ...,
+        ge=-1,
+        description="-1 means that no baby center was detected",
+        examples=[640],
+    )
+    baby_center_y: int = Field(
+        ...,
+        ge=-1,
+        description="-1 means that no baby center was detected",
+        examples=[360],
+    )
     baby_ratio: int = Field(..., ge=0, le=100, examples=[85])
     activity_level: int = Field(..., ge=0, le=100, examples=[24])
 

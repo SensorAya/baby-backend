@@ -32,19 +32,19 @@ class MonitoringRecord(Base):
             name="ck_monitoring_records_face_ratio",
         ),
         CheckConstraint(
-            "face_center_x >= 0",
+            "face_center_x >= -1",
             name="ck_monitoring_records_face_center_x",
         ),
         CheckConstraint(
-            "face_center_y >= 0",
+            "face_center_y >= -1",
             name="ck_monitoring_records_face_center_y",
         ),
         CheckConstraint(
-            "baby_center_x >= 0",
+            "baby_center_x >= -1",
             name="ck_monitoring_records_baby_center_x",
         ),
         CheckConstraint(
-            "baby_center_y >= 0",
+            "baby_center_y >= -1",
             name="ck_monitoring_records_baby_center_y",
         ),
         CheckConstraint(
@@ -90,10 +90,10 @@ class MonitoringRecord(Base):
         Boolean, nullable=False, default=False, server_default="false"
     )
     baby_center_x: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default="0"
+        Integer, nullable=False, default=-1, server_default="-1"
     )
     baby_center_y: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default="0"
+        Integer, nullable=False, default=-1, server_default="-1"
     )
     baby_ratio: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"

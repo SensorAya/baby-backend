@@ -20,6 +20,7 @@ from app.main import app  # noqa: E402
 from app.monitoring.periods import AggregationPeriod  # noqa: E402
 from app.monitoring.query import _history_item  # noqa: E402
 from app.monitoring.schemas import MonitoringRecordCreate  # noqa: E402
+from app.reports.query import REPORT_ANALYSIS_VERSION, _COMMON_CTE  # noqa: E402
 from app.reports.routes import MonitoringReportRequest, ReportPeriod  # noqa: E402
 
 
@@ -40,6 +41,33 @@ class HeartbeatContractTests(unittest.TestCase):
         )
         self.assertIsNone(heartbeat.event)
         self.assertEqual(heartbeat.activity_level, 30)
+
+    def test_negative_one_center_sentinel_is_accepted(self) -> None:
+        payload = {
+            "timestamp": 1752001234,
+            "face_ratio": 0,
+            "face_center_x": -1,
+            "face_center_y": -1,
+            "event": None,
+            "baby_center_x": -1,
+            "baby_center_y": -1,
+            "baby_ratio": 0,
+            "activity_level": 0,
+        }
+        heartbeat = MonitoringRecordCreate.model_validate(payload)
+        self.assertEqual(heartbeat.face_center_x, -1)
+        self.assertEqual(heartbeat.face_center_y, -1)
+        self.assertEqual(heartbeat.baby_center_x, -1)
+        self.assertEqual(heartbeat.baby_center_y, -1)
+
+        for field in (
+            "face_center_x",
+            "face_center_y",
+            "baby_center_x",
+            "baby_center_y",
+        ):
+            with self.subTest(field=field), self.assertRaises(ValidationError):
+                MonitoringRecordCreate.model_validate({**payload, field: -2})
 
     def test_event_is_required_and_activity_is_bounded(self) -> None:
         base = {
@@ -101,8 +129,28 @@ class ReportContractTests(unittest.TestCase):
         self.assertIn("/api/alarms/active", schema["paths"])
         heartbeat = schema["components"]["schemas"]["MonitoringRecordCreate"]
         self.assertTrue({"event", "activity_level"} <= set(heartbeat["required"]))
+        for field in (
+            "face_center_x",
+            "face_center_y",
+            "baby_center_x",
+            "baby_center_y",
+        ):
+            self.assertEqual(heartbeat["properties"][field]["minimum"], -1)
         periods = schema["components"]["schemas"]["ReportPeriod"]["enum"]
         self.assertEqual(periods, ["session", "daily", "weekly", "monthly"])
+
+    def test_report_center_aggregation_uses_negative_one_as_missing(self) -> None:
+        self.assertEqual(REPORT_ANALYSIS_VERSION, "2.2")
+        self.assertIn(
+            "face_center_x >= 0\n            AND face_center_y >= 0",
+            _COMMON_CTE,
+        )
+        self.assertIn(
+            "baby_center_x >= 0\n            AND baby_center_y >= 0",
+            _COMMON_CTE,
+        )
+        self.assertNotIn("face_center_x <> 0", _COMMON_CTE)
+        self.assertNotIn("baby_center_x <> 0", _COMMON_CTE)
 
 
 class AlarmBrokerTests(unittest.IsolatedAsyncioTestCase):

@@ -25,6 +25,10 @@ and LLM-assisted single-session, daily, weekly, or monthly reports.
 one active session. `start` opens it, ordinary heartbeats join it, and `stop`
 completes it. Heartbeats outside an active session return `409`.
 
+Each `face_center_*` or `baby_center_*` coordinate accepts `-1` when that target
+does not exist in the frame. Non-negative coordinates, including `(0, 0)`, are
+treated as detected positions.
+
 `activity_level` is an edge-computed `0..100` value based on the 30-frame average
 of adjacent baby bounding-box center displacement. Its engineering bands are:
 `<10` stationary, `10..30` minor movement, and `>30` major movement.
